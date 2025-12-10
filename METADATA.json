@@ -1,0 +1,25 @@
+{
+    "id": "unique-dataset-id",
+    "name": "Human Readable Dataset Name",
+    "year": 2025,
+    "tasks": [
+        "detection",
+        "classification"
+    ],
+    "license": "CC-BY-4.0",
+    "imaging_setup": {
+        "camera": "Smartphone",
+        "resolution": "1920x1080"
+    },
+    "damage_types": [
+        "crack",
+        "pothole"
+    ],
+    "n_images": 0,
+    "n_annotations": 0,
+    "links": {
+        "paper": "https://example.com/paper",
+        "homepage": "https://example.com",
+        "download": "https://example.com/download"
+    }
+}
