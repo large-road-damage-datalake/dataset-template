@@ -1,0 +1,15 @@
+# User configuration
+config.yaml
+
+# Generated statistics
+stats/stats.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# OS generated files
+.DS_Store
+Thumbs.db
