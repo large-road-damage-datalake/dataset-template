@@ -1,0 +1,41 @@
+{
+  "dataset_name": "TestDataset",
+  "task_type": "object_detection",
+  "format": "coco",
+  "global": {
+    "num_images": 2,
+    "num_annotations": 3,
+    "class_distribution": {
+      "crack": 2,
+      "pothole": 1
+    },
+    "num_classes": 2,
+    "imbalance": {
+      "max_class_count": 2,
+      "min_class_count": 1,
+      "ratio": 2.0
+    }
+  },
+  "splits": {
+    "train": {
+      "num_images": 2,
+      "num_annotations": 3,
+      "class_distribution": {
+        "crack": 2,
+        "pothole": 1
+      },
+      "objects_per_image": {
+        "mean": 1.5,
+        "median": 1.5
+      },
+      "image_resolution": {
+        "mean_width": 100,
+        "mean_height": 100
+      },
+      "bbox_area_rel": {
+        "mean": 0.056666666666666664,
+        "median": 0.04
+      }
+    }
+  }
+}
