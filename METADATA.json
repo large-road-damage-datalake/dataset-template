@@ -1,25 +1,101 @@
 {
-    "id": "unique-dataset-id",
-    "name": "Human Readable Dataset Name",
-    "year": 2025,
+  "schema_version": "1.0",
+  "basic_info": {
+    "id": "dataset-unique-id",
+    "name": "Dataset Display Name",
+    "short_name": "dataset-short-name",
+    "description": "Short package description.",
+    "year": 2026
+  },
+  "project_context": {
+    "task": "object_detection",
     "tasks": [
-        "detection",
-        "classification"
+      "object_detection"
     ],
-    "license": "CC-BY-4.0",
-    "imaging_setup": {
-        "camera": "Smartphone",
-        "resolution": "1920x1080"
-    },
-    "damage_types": [
-        "crack",
-        "pothole"
+    "damage_types": [],
+    "task_classification": {
+      "primary_task": "object_detection",
+      "task_subtype": "bounding_box_detection"
+    }
+  },
+  "imaging_setup": {
+    "camera": "Not specified",
+    "camera_viewpoint": [
+      "front-view"
     ],
+    "resolution": "Unknown",
+    "lighting_conditions": "Variable daylight/outdoor",
+    "capture_height_mm": "Not reported",
+    "geotagged": false
+  },
+  "annotation_schema": [
+    {
+      "type": "bounding_box",
+      "description": "Replace with annotation task and class schema.",
+      "classes": [
+        {
+          "id": 1,
+          "name": "example_class",
+          "description": "Replace with class description.",
+          "color": "#FF0000"
+        }
+      ]
+    }
+  ],
+  "statistics": {
     "n_images": 0,
     "n_annotations": 0,
-    "links": {
-        "paper": "https://example.com/paper",
-        "homepage": "https://example.com",
-        "download": "https://example.com/download"
+    "n_images_with_annotations": 0,
+    "average_annotations_per_image": 0,
+    "dataset_size": "0 MB",
+    "dataset_size_bytes": 0,
+    "dataset_file_count": 0,
+    "image_format": "coco",
+    "class_distribution": {},
+    "split": {
+      "data": {
+        "n_images": 0,
+        "percentage": 1.0,
+        "n_images_with_annotations": 0,
+        "annotation_coverage": 0,
+        "dataset_size": "0 MB",
+        "dataset_size_bytes": 0,
+        "dataset_file_count": 0
+      }
     }
+  },
+  "geographic_coverage": {
+    "countries": [],
+    "temporal_scope": "Not specified"
+  },
+  "quality_assurance": {
+    "annotation_quality": "Not specified",
+    "inter_annotator_agreement": "Not reported",
+    "review_status": "Not specified"
+  },
+  "authors": [
+    {
+      "name": "Author Name",
+      "affiliation": "Organization",
+      "role": "Dataset Creator"
+    }
+  ],
+  "license": "Specify license",
+  "links": {
+    "github": "https://github.com/large-road-damage-datalake/dataset-unique-id",
+    "download": "https://github.com/large-road-damage-datalake/dataset-unique-id/releases/latest"
+  },
+  "citation": {
+    "bibtex": "@dataset{dataset_unique_id,\n  title={Dataset Display Name},\n  author={Author Name},\n  year={2026},\n  publisher={Publisher},\n  url={https://github.com/large-road-damage-datalake/dataset-unique-id}\n}"
+  },
+  "tags": [
+    "road-damage"
+  ],
+  "source_publication": {
+    "dataset_doi": "Not provided",
+    "article_doi": "Not provided",
+    "article_title": "Not provided",
+    "journal": "Not provided",
+    "year": 2026
+  }
 }
