@@ -47,6 +47,26 @@ At minimum, keep these files committed:
 - `visualizations/samples/samples_manifest.json`
 - Markdown publication docs (`README.md`, `ABSTRACT.md`, `SUMMARY.md`, `CITATION.md`, `DOWNLOAD.md`, `LICENSE.md`)
 
+## Class Label Taxonomy
+
+To improve web-side filtering and cross-dataset comparability, keep class metadata normalized:
+
+- `project_context.damage_types`: high-level canonical families only (for example: `crack`, `pothole`, `patch_repair`).
+- `annotation_schema[].classes[]`: annotation-centric entries only:
+   - Keep dataset label fields such as `id`, `name`, `description`, `color`, and optional `instances`.
+   - Keep `canonical_name` as the taxonomy reference key.
+- `class_taxonomy`: canonical taxonomy source used for indexing/filtering and semantic metadata (`display_name`, `damage_family`, `damage_subtype`, `role`, `is_damage_target`, `aliases`, `source_labels`, `taxonomy_source`, `taxonomy_unresolved`).
+
+The enrichment script (`scripts/enrich_metadata.py`) now uses `scripts/label_taxonomy_registry.json` as the authoritative alias registry, then applies strict fallback behavior:
+
+- If label matches registry alias: map directly to canonical class.
+- If label looks like a code (for example `D00`) and class `description` exists: try description-based canonical mapping.
+- If still unresolved and label is a code: mark as `role=code_legacy` with `damage_family=unknown`.
+- Otherwise: mark as `role=unknown` and flag for taxonomy review.
+
+For datasets with code labels, add explicit overrides in `config.yaml` via `label_codebook`.
+The strict validator enforces taxonomy completeness and consistency, and ensures every `annotation_schema[].classes[]` entry references an existing `class_taxonomy.classes[]` entry by `canonical_name`.
+
 ## Notes
 
 - Do not ignore generated `stats/` and `visualizations/` outputs in Git.

@@ -12,7 +12,9 @@
     "tasks": [
       "object_detection"
     ],
-    "damage_types": [],
+    "damage_types": [
+      "crack"
+    ],
     "task_classification": {
       "primary_task": "object_detection",
       "task_subtype": "bounding_box_detection"
@@ -36,12 +38,38 @@
         {
           "id": 1,
           "name": "example_class",
+          "canonical_name": "example_class",
           "description": "Replace with class description.",
           "color": "#FF0000"
         }
       ]
     }
   ],
+  "class_taxonomy": {
+    "version": "road_damage_v1",
+    "classes": [
+      {
+        "display_name": "Example Class",
+        "canonical_name": "example_class",
+        "damage_family": "crack",
+        "damage_subtype": "generic",
+        "role": "damage_target",
+        "is_damage_target": true,
+        "taxonomy_source": "registry",
+        "aliases": [
+          "example_class"
+        ],
+        "source_labels": [
+          "example_class"
+        ],
+        "taxonomy_unresolved": false
+      }
+    ],
+    "damage_types": [
+      "crack"
+    ],
+    "unresolved_labels": []
+  },
   "statistics": {
     "n_images": 0,
     "n_annotations": 0,
