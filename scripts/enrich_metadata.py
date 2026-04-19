@@ -14,6 +14,13 @@ from pathlib import Path
 from task_classification import resolve_task_classification
 
 
+_GENERIC_CONTEXT_CANONICALS = {
+    'context.object_fixed',
+    'context.object_mobile',
+    'context.street_inventory',
+}
+
+
 def _slugify_token(value):
     return re.sub(r"[^a-z0-9]+", "_", str(value or "").lower()).strip("_")
 
@@ -256,6 +263,131 @@ def _resolve_codebook_mapping(label, codebook_norm):
     return codebook_norm.get(key)
 
 
+def _specialize_generic_context_mapping(canonical_name, source_name, canonical_info):
+    canonical = str(canonical_name or '').strip()
+    source = str(source_name or '').strip()
+    if not source or canonical not in _GENERIC_CONTEXT_CANONICALS:
+        return canonical, canonical_info, False
+
+    source_slug = _slugify_token(source) or 'object'
+    info = dict(canonical_info or {})
+    aliases = [str(a).strip() for a in (info.get('aliases') or []) if str(a).strip()]
+    if source not in aliases:
+        aliases.append(source)
+
+    info['display_name'] = _display_label(source)
+    info['damage_family'] = str(info.get('damage_family') or 'context_non_damage')
+    info['damage_subtype'] = source_slug
+    info['role'] = str(info.get('role') or 'context')
+    info['aliases'] = aliases
+    return f'context.{source_slug}', info, True
+
+
+def _infer_taxonomy_from_source_label(source_name):
+    source = str(source_name or '').strip()
+    if not source:
+        return None
+
+    norm = _norm_label_key(source)
+    slug = _slugify_token(source) or 'label'
+    display = _display_label(source)
+
+    if _is_negative_class_label(source):
+        return {
+            'canonical_name': 'class.negative',
+            'display_name': display,
+            'damage_family': 'context_non_damage',
+            'damage_subtype': 'negative',
+            'role': 'negative',
+            'aliases': [source],
+            'qualifiers': [],
+            'taxonomy_source': 'heuristic',
+            'taxonomy_unresolved': False,
+        }
+
+    if any(tok in norm for tok in ('patch', 'repair', 'sealed')):
+        subtype = 'sealed' if 'sealed' in norm else 'generic'
+        canonical = 'repair.general' if subtype == 'generic' else f'repair.{subtype}'
+        return {
+            'canonical_name': canonical,
+            'display_name': display,
+            'damage_family': 'patch_repair',
+            'damage_subtype': subtype,
+            'role': 'repair',
+            'aliases': [source],
+            'qualifiers': [],
+            'taxonomy_source': 'heuristic',
+            'taxonomy_unresolved': False,
+        }
+
+    if 'pothole' in norm:
+        return {
+            'canonical_name': 'pothole',
+            'display_name': display,
+            'damage_family': 'pothole',
+            'damage_subtype': 'generic',
+            'role': 'damage_target',
+            'aliases': [source],
+            'qualifiers': [],
+            'taxonomy_source': 'heuristic',
+            'taxonomy_unresolved': False,
+        }
+
+    if 'crack' in norm:
+        subtype = 'generic'
+        for token, mapped in (
+            ('alligator', 'alligator'),
+            ('longitudinal', 'longitudinal'),
+            ('transverse', 'transverse'),
+            ('diagonal', 'diagonal'),
+            ('block', 'block'),
+            ('reflective', 'reflective'),
+        ):
+            if token in norm:
+                subtype = mapped
+                break
+        canonical = 'crack' if subtype == 'generic' else f'crack.{subtype}'
+        return {
+            'canonical_name': canonical,
+            'display_name': display,
+            'damage_family': 'crack',
+            'damage_subtype': subtype,
+            'role': 'damage_target',
+            'aliases': [source],
+            'qualifiers': [],
+            'taxonomy_source': 'heuristic',
+            'taxonomy_unresolved': False,
+        }
+
+    if any(tok in norm for tok in ('damage', 'defect', 'distress', 'rut', 'ravel', 'depression', 'bleeding')):
+        return {
+            'canonical_name': f'damage.{slug}',
+            'display_name': display,
+            'damage_family': 'surface_distress',
+            'damage_subtype': slug,
+            'role': 'damage_target',
+            'aliases': [source],
+            'qualifiers': [],
+            'taxonomy_source': 'heuristic',
+            'taxonomy_unresolved': False,
+        }
+
+    if any(tok in norm for tok in ('manhole', 'cover', 'drain', 'curb', 'marking', 'vegetation', 'joint', 'pole', 'sign')):
+        return {
+            'canonical_name': f'context.{slug}',
+            'display_name': display,
+            'damage_family': 'context_non_damage',
+            'damage_subtype': slug,
+            'role': 'context',
+            'aliases': [source],
+            'qualifiers': [],
+            'taxonomy_source': 'heuristic',
+            'taxonomy_unresolved': False,
+        }
+
+    return None
+
+
 def _build_resolved_entry(canonical_name, canonical_info, taxonomy_source):
     canonical_info = canonical_info or {}
     display_name = str(canonical_info.get('display_name') or _display_label(canonical_name))
@@ -289,6 +421,11 @@ def _resolve_taxonomy_for_label(name, description, codebook_norm, alias_lookup, 
         if isinstance(codebook_value, str):
             canonical_name = codebook_value.strip()
             info = canonical_by_name.get(canonical_name, {})
+            canonical_name, info, specialized = _specialize_generic_context_mapping(
+                canonical_name,
+                source_name,
+                info,
+            )
             if not info:
                 info = {
                     'display_name': _display_label(canonical_name),
@@ -296,7 +433,7 @@ def _resolve_taxonomy_for_label(name, description, codebook_norm, alias_lookup, 
                     'role': 'unknown',
                     'aliases': [source_name],
                 }
-            return _build_resolved_entry(canonical_name, info, 'codebook')
+            return _build_resolved_entry(canonical_name, info, 'codebook_specialized' if specialized else 'codebook')
 
         if isinstance(codebook_value, dict):
             canonical_name = str(codebook_value.get('canonical_name', '')).strip()
@@ -330,6 +467,10 @@ def _resolve_taxonomy_for_label(name, description, codebook_norm, alias_lookup, 
             'taxonomy_source': 'fallback_code',
             'taxonomy_unresolved': True,
         }
+
+    heuristic = _infer_taxonomy_from_source_label(source_name)
+    if heuristic is not None:
+        return heuristic
 
     return {
         'canonical_name': f"unknown.{_slugify_token(source_name) or 'label'}",
