@@ -460,7 +460,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "dataset_specific",
-      "aliases": ["street_inventory"]
+      "aliases": ["street_inventory", "Street Inventory", "manhole cover", "Manhole Cover", "manhole_cover"]
     },
     {
       "canonical_name": "class.negative",
