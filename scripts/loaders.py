@@ -67,6 +67,38 @@ def _collect_images(images_root):
     return sorted(images)
 
 
+def _map_detection_class(raw_value, class_map, class_exclude):
+    raw_str = str(raw_value)
+
+    if raw_value in class_exclude or raw_str in class_exclude:
+        return None
+
+    candidates = [raw_value, raw_str]
+    if isinstance(raw_value, str) and raw_value.isdigit():
+        try:
+            candidates.append(int(raw_value))
+        except Exception:
+            pass
+
+    mapped = None
+    for key in candidates:
+        if key in class_map:
+            mapped = class_map[key]
+            break
+        key_str = str(key)
+        if key_str in class_map:
+            mapped = class_map[key_str]
+            break
+
+    if mapped is None:
+        mapped = raw_str
+
+    mapped_str = str(mapped)
+    if mapped in class_exclude or mapped_str in class_exclude:
+        return None
+    return mapped_str
+
+
 def _map_mask_class(raw_value, class_map, class_exclude):
     raw_str = str(raw_value)
 
@@ -408,11 +440,13 @@ def load_coco_stats(annotations_path, images_root):
     return stats
 
 
-def load_yolo_stats(images_root, annotations_root=None):
+def load_yolo_stats(images_root, annotations_root=None, class_map=None, class_exclude=None):
     if not os.path.isdir(images_root):
         print(f"[{images_root}] is not a directory.")
         return None
 
+    class_map = class_map or {}
+    class_exclude = set(class_exclude or [])
     image_files = _collect_images(images_root)
     stats = _new_stats_base(num_images=len(image_files))
 
@@ -440,7 +474,9 @@ def load_yolo_stats(images_root, annotations_root=None):
                 parts = line.strip().split()
                 if len(parts) < 5:
                     continue
-                cls = parts[0]
+                cls = _map_detection_class(parts[0], class_map, class_exclude)
+                if not cls:
+                    continue
                 class_set.add(cls)
                 stats["class_distribution"][cls] += 1
                 stats["num_annotations"] += 1

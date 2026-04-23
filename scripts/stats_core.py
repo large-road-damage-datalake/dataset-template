@@ -58,7 +58,12 @@ def compute_split_stats(task_type, fmt, split_cfg):
     if fmt == 'coco':
         data = loaders.load_coco_stats(annotations, images_root)
     elif fmt == 'yolo':
-        data = loaders.load_yolo_stats(images_root, annotations)
+        data = loaders.load_yolo_stats(
+            images_root,
+            annotations,
+            class_map=class_map,
+            class_exclude=class_exclude,
+        )
     elif fmt == 'voc':
         data = loaders.load_voc_stats(
             images_root,
