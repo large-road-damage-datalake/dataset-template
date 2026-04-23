@@ -588,11 +588,12 @@ def load_image_folder_stats(images_root, class_map=None, class_exclude=None):
             continue
         class_path = os.path.join(images_root, cls)
         target_cls = class_map.get(cls, cls)
-        class_images = [
-            os.path.join(class_path, f)
-            for f in os.listdir(class_path)
-            if os.path.splitext(f)[1].lower() in IMAGE_EXTS
-        ]
+        class_images = []
+        for root, _, files in os.walk(class_path):
+            for fname in files:
+                if os.path.splitext(fname)[1].lower() in IMAGE_EXTS:
+                    class_images.append(os.path.join(root, fname))
+        class_images.sort()
 
         stats["class_distribution"][target_cls] += len(class_images)
         stats["num_images"] += len(class_images)
