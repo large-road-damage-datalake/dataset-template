@@ -91,10 +91,15 @@ def _build_country_lookup(config):
         cid = _slugify_token(name)
         if not cid:
             continue
+        aliases = _country_aliases(name)
+        if isinstance(item, dict):
+            extra_aliases = item.get("aliases", [])
+            if isinstance(extra_aliases, list):
+                aliases.update(_slugify_token(v) for v in extra_aliases if str(v).strip())
         lookup[cid] = {
             "id": cid,
             "label": name,
-            "aliases": _country_aliases(name),
+            "aliases": {a for a in aliases if a},
         }
     return lookup
 
@@ -311,6 +316,7 @@ def _build_view_payload(view_id, label, split_names, scoped_stats_data):
     g = scoped_stats_data.get("global", {})
     n_images = int(g.get("num_images", 0))
     n_images_with_annotations = int(g.get("num_images_with_annotations", 0))
+    class_distribution = dict(g.get("class_distribution", {}) or {})
     res_hist = g.get("image_resolution_histogram", {}) or {}
     res_details = [
         {"resolution": str(k), "count": int(v)}
@@ -327,9 +333,9 @@ def _build_view_payload(view_id, label, split_names, scoped_stats_data):
             "num_annotations": int(g.get("num_annotations", 0)),
             "num_images_with_annotations": n_images_with_annotations,
             "num_images_without_annotations": max(0, n_images - n_images_with_annotations),
-            "num_classes": int(g.get("num_classes", 0)),
+            "num_classes": len(class_distribution),
             "annotation_coverage": round(float(g.get("annotation_coverage", 0.0)), 6),
-            "class_distribution": g.get("class_distribution", {}),
+            "class_distribution": class_distribution,
             "resolutions": res_list,
             "resolution_details": res_details,
         },
@@ -778,7 +784,13 @@ def _find_sample_annotation_info(sample_src, config, splits, coco_cache):
     if fmt == "yolo" and split:
         txt_path = os.path.join(split.get("annotations", ""), basename + ".txt")
         if os.path.isfile(txt_path):
-            return {"mode": "bbox", "format": "yolo", "source_path": txt_path}
+            return {
+                "mode": "bbox",
+                "format": "yolo",
+                "source_path": txt_path,
+                "class_map": dict(split.get("class_map", {}) or {}),
+                "class_exclude": list(split.get("class_exclude", []) or []),
+            }
 
     if fmt == "coco" and split:
         coco_path = split.get("annotations", "")
@@ -2114,6 +2126,7 @@ def _build_preview_assets(config, output_dir, stats_data, samples_rel_dir="visua
                 entry["annotation_file"] = (
                     f"annotations/{ann_copy_name}".replace("\\", "/") if ann_copy_name else None
                 )
+                entry["class_map"] = dict(ann_info.get("class_map", {}) or {})
                 entry["slider_ready"] = bool(ann_copy_name)
                 if ann_copy_name:
                     slider_pairs += 1
