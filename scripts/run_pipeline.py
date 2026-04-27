@@ -18,6 +18,8 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 # Import local modules
 from generate_visualizations import generate_visualizations
 from enrich_metadata import enrich_metadata_from_stats

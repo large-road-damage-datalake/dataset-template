@@ -833,6 +833,7 @@ def _find_sample_annotation_info(sample_src, config, splits, coco_cache):
                         "source_path": mp,
                         "class_map": dict(split.get("class_map", {}) or {}),
                         "class_exclude": list(split.get("class_exclude", []) or []),
+                        "min_component_area_px": split.get("min_component_area_px", 1),
                     }
 
     return None
@@ -1125,7 +1126,14 @@ def _copy_or_scale_yolo_annotation(src_txt, dst_txt):
         return False
 
 
-def _mask_to_polygons(mask_path, out_json_path, target_size, class_map=None, class_exclude=None):
+def _mask_to_polygons(
+    mask_path,
+    out_json_path,
+    target_size,
+    class_map=None,
+    class_exclude=None,
+    min_component_area_px=1,
+):
     """Convert indexed mask classes to pixel-precise polygon JSON without OpenCV dependency."""
     try:
         import numpy as np
@@ -1175,6 +1183,12 @@ def _mask_to_polygons(mask_path, out_json_path, target_size, class_map=None, cla
         return None
 
     excluded = {str(v).strip() for v in (class_exclude or []) if str(v).strip()}
+    try:
+        min_component_area_px = int(min_component_area_px)
+    except Exception:
+        min_component_area_px = 1
+    if min_component_area_px < 1:
+        min_component_area_px = 1
 
     def _infer_foreground_values(mask_array, cmap, cexclude):
         vals, counts = np.unique(mask_array, return_counts=True)
@@ -1483,6 +1497,8 @@ def _mask_to_polygons(mask_path, out_json_path, target_size, class_map=None, cla
                     stack.append((ny, nx))
 
             if len(component) < 1:
+                continue
+            if len(component) < min_component_area_px:
                 continue
 
             boundaries = _trace_component_boundaries(component)
@@ -2114,6 +2130,7 @@ def _build_preview_assets(config, output_dir, stats_data, samples_rel_dir="visua
                         target_size=(new_w, new_h) if new_w and new_h else None,
                         class_map=ann_info.get("class_map"),
                         class_exclude=ann_info.get("class_exclude"),
+                        min_component_area_px=ann_info.get("min_component_area_px", 1),
                     ):
                         ann_copy_name = None
 

@@ -350,6 +350,16 @@ def _single_component_with_stats(binary_mask):
     return [(min_x, min_y, max_x, max_y, area_px)]
 
 
+def _filter_components_by_area(components, min_component_area_px=1):
+    try:
+        min_area = int(min_component_area_px)
+    except Exception:
+        min_area = 1
+    if min_area <= 1:
+        return list(components or [])
+    return [comp for comp in (components or []) if len(comp) >= 5 and int(comp[4]) >= min_area]
+
+
 def load_coco_stats(annotations_path, images_root):
     # Support image-only splits (e.g., test sets without labels).
     if not os.path.exists(annotations_path):
@@ -656,6 +666,7 @@ def load_png_mask_stats(
     class_exclude=None,
     mask_suffixes=None,
     connected_components=True,
+    min_component_area_px=1,
 ):
     if not os.path.isdir(images_root):
         return None
@@ -674,6 +685,13 @@ def load_png_mask_stats(
         connected_components = connected_components.strip().lower() not in {"0", "false", "no", "off"}
     else:
         connected_components = bool(connected_components)
+
+    try:
+        min_component_area_px = int(min_component_area_px)
+    except Exception:
+        min_component_area_px = 1
+    if min_component_area_px < 1:
+        min_component_area_px = 1
 
     image_files = _collect_images(images_root)
     stats = _new_stats_base(num_images=len(image_files))
@@ -784,6 +802,10 @@ def load_png_mask_stats(
                                 components = _connected_components_with_stats(cls_mask)
                             else:
                                 components = _single_component_with_stats(cls_mask)
+                            components = _filter_components_by_area(
+                                components,
+                                min_component_area_px=min_component_area_px,
+                            )
                             if not components:
                                 continue
 
