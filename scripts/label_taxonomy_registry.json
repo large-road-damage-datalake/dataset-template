@@ -15,7 +15,6 @@
     "unknown_to_background_allowed": false,
     "code_labels_global_inference_allowed": false,
     "require_dataset_scoped_codebooks": true,
-    "dataset_codebooks_location": "Use per-dataset config label_codebook; do not add dataset-specific code mappings into this default registry.",
     "preserve_raw_source_labels": true
   },
   "mapping_quality_levels": [
@@ -45,7 +44,7 @@
         "severity": ["minor", "moderate", "severe"]
       },
       "status": "stable",
-      "aliases": ["crack", "cracked", "Crack"]
+      "aliases": ["crack", "cracked", "Crack", "line"]
     },
     {
       "canonical_name": "crack.alligator",
@@ -61,7 +60,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "stable",
-      "aliases": ["alligator", "Alligator crack", "Aligator Crack", "alligator crack"]
+      "aliases": ["alligator", "Alligator crack", "Aligator Crack", "alligator crack", "D20"]
     },
     {
       "canonical_name": "crack.longitudinal",
@@ -87,7 +86,9 @@
         "Longitudinal Crack",
         "Lane Longitudinal Crack",
         "longitudinal crack",
-        "Sealed Longitudinal Crack"
+        "Sealed Longitudinal Crack",
+        "D00",
+        "D01"
       ]
     },
     {
@@ -114,7 +115,9 @@
         "Transvers Crack",
         "transverse crack",
         "Sealed Transvers Cracks",
-        "Sealed Transverse Crack"
+        "Sealed Transverse Crack",
+        "D10",
+        "D11"
       ]
     },
     {
@@ -150,7 +153,7 @@
         "treatment_state": ["sealed", "unsealed"]
       },
       "status": "stable",
-      "aliases": ["Block crack", "Block Crack", "block crack", "Sealed Block Crack"]
+      "aliases": ["Block crack", "Block Crack", "block crack", "Sealed Block Crack", "block"]
     },
     {
       "canonical_name": "crack.reflective",
@@ -204,7 +207,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "stable",
-      "aliases": ["pothole", "Pothole"]
+      "aliases": ["pothole", "Pothole", "D40", "drill_hole", "pit"]
     },
     {
       "canonical_name": "repair.general",
@@ -220,7 +223,18 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "stable",
-      "aliases": ["Repair", "repair"]
+      "aliases": [
+        "Repair",
+        "repair",
+        "Patch",
+        "Longitudinal Patch",
+        "Transverse Patch",
+        "patched crack",
+        "patched pothole",
+        "patched alligator crack",
+        "clay-patched crack",
+        "D30"
+      ]
     },
     {
       "canonical_name": "patch.applied",
@@ -236,7 +250,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "stable",
-      "aliases": ["applied_patch"]
+      "aliases": ["applied_patch", "Applied", "Applied Patch", "D80"]
     },
     {
       "canonical_name": "patch.inlaid",
@@ -252,7 +266,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "stable",
-      "aliases": ["inlaid_patch"]
+      "aliases": ["inlaid_patch", "Inlaid"]
     },
     {
       "canonical_name": "joint.generic",
@@ -268,7 +282,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "provisional",
-      "aliases": ["joint"]
+      "aliases": ["joint", "Generic"]
     },
     {
       "canonical_name": "joint.open",
@@ -284,7 +298,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "provisional",
-      "aliases": ["open_joint"]
+      "aliases": ["open_joint", "Open"]
     },
     {
       "canonical_name": "joint.expansion",
@@ -300,7 +314,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "provisional",
-      "aliases": ["expansion_joint"]
+      "aliases": ["expansion_joint", "Expansion"]
     },
     {
       "canonical_name": "surface.scratch",
@@ -319,6 +333,22 @@
       "aliases": ["scratch"]
     },
     {
+      "canonical_name": "surface.rutting",
+      "display_name": "Rutting",
+      "parent_canonical_name": null,
+      "hierarchy_level": 1,
+      "is_leaf": true,
+      "damage_family": "surface_distress",
+      "damage_subtype": "rutting",
+      "role": "damage_target",
+      "semantic_role": "damage",
+      "training_role": "target",
+      "valid_tasks": ["classification", "object_detection", "segmentation"],
+      "supports_instance_geometry": ["image_level", "bbox", "mask"],
+      "status": "dataset_specific",
+      "aliases": ["rutting", "Rutting", "D90"]
+    },
+    {
       "canonical_name": "context.road_marking",
       "display_name": "Road Marking",
       "parent_canonical_name": null,
@@ -332,7 +362,16 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "stable",
-      "aliases": ["road_marking"]
+      "aliases": [
+        "road_marking",
+        "Road Marking",
+        "Crosswalk Blur",
+        "White Line Blur",
+        "D43",
+        "D44",
+        "D50",
+        "D60"
+      ]
     },
     {
       "canonical_name": "context.road_verge",
@@ -348,7 +387,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "stable",
-      "aliases": ["road_verge"]
+      "aliases": ["road_verge", "Road Verge"]
     },
     {
       "canonical_name": "context.curb",
@@ -412,7 +451,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "dataset_specific",
-      "aliases": ["object_fixed"]
+      "aliases": ["object_fixed", "Object Fixed", "street waste"]
     },
     {
       "canonical_name": "context.object_mobile",
@@ -428,7 +467,23 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "dataset_specific",
-      "aliases": ["object_mobile"]
+      "aliases": ["object_mobile", "Object Mobile"]
+    },
+    {
+      "canonical_name": "context.surface_water",
+      "display_name": "Puddle",
+      "parent_canonical_name": null,
+      "hierarchy_level": 1,
+      "is_leaf": true,
+      "damage_family": "context_non_damage",
+      "damage_subtype": "surface_water",
+      "role": "context",
+      "semantic_role": "road_feature",
+      "training_role": "context",
+      "valid_tasks": ["classification", "object_detection", "segmentation"],
+      "supports_instance_geometry": ["image_level", "bbox", "mask"],
+      "status": "stable",
+      "aliases": ["puddle", "Puddle"]
     },
     {
       "canonical_name": "context.surface_water_drain",
@@ -444,7 +499,7 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "dataset_specific",
-      "aliases": ["surface_water_drain"]
+      "aliases": ["surface_water_drain", "Surface Water Drain"]
     },
     {
       "canonical_name": "context.street_inventory",
@@ -460,7 +515,48 @@
       "valid_tasks": ["classification", "object_detection", "segmentation"],
       "supports_instance_geometry": ["image_level", "bbox", "mask"],
       "status": "dataset_specific",
-      "aliases": ["street_inventory", "Street Inventory", "manhole cover", "Manhole Cover", "manhole_cover"]
+      "aliases": [
+        "street_inventory",
+        "Street Inventory",
+        "manhole cover",
+        "Manhole Cover",
+        "manhole_cover",
+        "manhole",
+        "D50",
+        "D70"
+      ]
+    },
+    {
+      "canonical_name": "context.speed_bump",
+      "display_name": "Speed Bump",
+      "parent_canonical_name": null,
+      "hierarchy_level": 1,
+      "is_leaf": true,
+      "damage_family": "context_non_damage",
+      "damage_subtype": "speed_bump",
+      "role": "context",
+      "semantic_role": "road_feature",
+      "training_role": "context",
+      "valid_tasks": ["classification", "object_detection", "segmentation"],
+      "supports_instance_geometry": ["image_level", "bbox", "mask"],
+      "status": "stable",
+      "aliases": ["speed bump", "Speed Bump"]
+    },
+    {
+      "canonical_name": "context.manhole",
+      "display_name": "Manhole",
+      "parent_canonical_name": null,
+      "hierarchy_level": 1,
+      "is_leaf": true,
+      "damage_family": "context_non_damage",
+      "damage_subtype": "manhole",
+      "role": "context",
+      "semantic_role": "road_feature",
+      "training_role": "context",
+      "valid_tasks": ["classification", "object_detection", "segmentation"],
+      "supports_instance_geometry": ["image_level", "bbox", "mask"],
+      "status": "dataset_specific",
+      "aliases": ["manhole", "Manhole"]
     },
     {
       "canonical_name": "class.negative",
@@ -477,7 +573,17 @@
       "supports_instance_geometry": ["image_level"],
       "task_notes": "Used as absence-of-target class rather than a physical road entity.",
       "status": "stable",
-      "aliases": ["non-cracked", "non cracked", "negative", "normal", "intact", "healthy"]
+      "aliases": [
+        "non-cracked",
+        "non cracked",
+        "negative",
+        "normal",
+        "intact",
+        "healthy",
+        "background",
+        "intact_road",
+        "void"
+      ]
     },
     {
       "canonical_name": "background",
@@ -592,5 +698,67 @@
       "mapping_confidence": "high",
       "source_dataset_id": "*"
     }
-  ]
+  ],
+  "dataset_codebooks": {
+    "rdd2022-object-detection": {
+      "mapping_source": "official codebook",
+      "mapping_review_status": "draft",
+      "mappings": {
+        "D00": {
+          "canonical_name": null,
+          "mapping_source": "pending official codebook linkage",
+          "mapping_review_status": "draft",
+          "mapping_confidence": "low"
+        },
+        "D01": {
+          "canonical_name": null,
+          "mapping_source": "pending official codebook linkage",
+          "mapping_review_status": "draft",
+          "mapping_confidence": "low"
+        },
+        "D10": {
+          "canonical_name": null,
+          "mapping_source": "pending official codebook linkage",
+          "mapping_review_status": "draft",
+          "mapping_confidence": "low"
+        },
+        "D11": {
+          "canonical_name": null,
+          "mapping_source": "pending official codebook linkage",
+          "mapping_review_status": "draft",
+          "mapping_confidence": "low"
+        },
+        "D20": {
+          "canonical_name": null,
+          "mapping_source": "pending official codebook linkage",
+          "mapping_review_status": "draft",
+          "mapping_confidence": "low"
+        },
+        "D40": {
+          "canonical_name": null,
+          "mapping_source": "pending official codebook linkage",
+          "mapping_review_status": "draft",
+          "mapping_confidence": "low"
+        },
+        "D43": {
+          "canonical_name": null,
+          "mapping_source": "pending official codebook linkage",
+          "mapping_review_status": "draft",
+          "mapping_confidence": "low"
+        },
+        "D44": {
+          "canonical_name": null,
+          "mapping_source": "pending official codebook linkage",
+          "mapping_review_status": "draft",
+          "mapping_confidence": "low"
+        },
+        "D50": {
+          "canonical_name": "context.street_inventory",
+          "mapping_source": "official codebook (Manhole Cover)",
+          "mapping_review_status": "reviewed",
+          "mapping_confidence": "high"
+        }
+      }
+    }
+  }
 }
