@@ -77,16 +77,20 @@ def _clip_interval(lo, hi, limit):
 
 
 def get_image_size(file_path):
-    """Return (width, height) for PNG/JPEG using standard library only."""
+    """Return (width, height) for PNG/JPEG/BMP using standard library, with PIL fallback."""
     try:
         with open(file_path, "rb") as f:
-            head = f.read(24)
-            if len(head) != 24:
+            head = f.read(26)
+            if len(head) < 24:
                 return None
 
             if head.startswith(b"\x89PNG\r\n\x1a\n"):
                 f.seek(16)
                 return struct.unpack(">II", f.read(8))
+
+            if head.startswith(b"BM") and len(head) >= 26:
+                w, h = struct.unpack("<ii", head[18:26])
+                return (abs(w), abs(h))
 
             if head.startswith(b"\xff\xd8"):
                 f.seek(0)
@@ -105,9 +109,15 @@ def get_image_size(file_path):
                 h, w = struct.unpack(">HH", f.read(4))
                 return (w, h)
     except Exception:
-        return None
+        pass
 
-    return None
+    try:
+        from PIL import Image
+
+        with Image.open(file_path) as img:
+            return img.size
+    except Exception:
+        return None
 
 
 def _collect_images(images_root):
@@ -310,7 +320,7 @@ def _build_class_masks_from_grayscale(base, class_map, class_exclude):
 
 def _connected_components_with_stats(binary_mask):
     """
-    Return connected component stats for a binary mask.
+    Return 8-connected component stats for a binary mask using horizontal run-length union-find.
     Each component is a tuple: (min_x, min_y, max_x, max_y, area_px).
     """
     try:
@@ -322,54 +332,77 @@ def _connected_components_with_stats(binary_mask):
         return []
 
     mask = np.asarray(binary_mask, dtype=bool)
-    if mask.ndim != 2:
+    if mask.ndim != 2 or mask.size == 0 or not np.any(mask):
         return []
 
-    h, w = mask.shape
-    if h <= 0 or w <= 0:
+    u8 = mask.view(np.uint8)
+    padded = np.pad(u8, ((0, 0), (1, 1)), mode="constant")
+    diff = np.diff(padded.astype(np.int8), axis=1)
+    ry, rx_start = np.nonzero(diff == 1)
+    _, rx_end_excl = np.nonzero(diff == -1)
+    rx_end = rx_end_excl - 1
+    n_runs = len(ry)
+    if n_runs == 0:
         return []
 
-    visited = np.zeros_like(mask, dtype=bool)
-    ys, xs = np.where(mask)
-    components = []
+    ry_l = ry.tolist()
+    xs_l = rx_start.tolist()
+    xe_l = rx_end.tolist()
+    parent = list(range(n_runs))
 
-    for y0, x0 in zip(ys.tolist(), xs.tolist()):
-        if visited[y0, x0]:
+    def _find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    row_breaks = [0]
+    for i in range(1, n_runs):
+        if ry_l[i] != ry_l[i - 1]:
+            row_breaks.append(i)
+    row_breaks.append(n_runs)
+
+    for r_idx in range(1, len(row_breaks) - 1):
+        s_curr, e_curr = row_breaks[r_idx], row_breaks[r_idx + 1]
+        s_prev, e_prev = row_breaks[r_idx - 1], row_breaks[r_idx]
+        if ry_l[s_curr] != ry_l[s_prev] + 1:
             continue
+        p = s_prev
+        for c in range(s_curr, e_curr):
+            c_xs, c_xe = xs_l[c], xe_l[c]
+            while p < e_prev and xe_l[p] + 1 < c_xs:
+                p += 1
+            q = p
+            while q < e_prev and xs_l[q] <= c_xe + 1:
+                rc, rq = _find(c), _find(q)
+                if rc != rq:
+                    if rc < rq:
+                        parent[rq] = rc
+                    else:
+                        parent[rc] = rq
+                q += 1
 
-        stack = [(y0, x0)]
-        visited[y0, x0] = True
+    comp_map = {}
+    for i in range(n_runs):
+        root = _find(i)
+        y = ry_l[i]
+        x0, x1 = xs_l[i], xe_l[i]
+        w = x1 - x0 + 1
+        if root not in comp_map:
+            comp_map[root] = [x0, y, x1, y, w]
+        else:
+            st = comp_map[root]
+            if x0 < st[0]:
+                st[0] = x0
+            if y < st[1]:
+                st[1] = y
+            if x1 > st[2]:
+                st[2] = x1
+            if y > st[3]:
+                st[3] = y
+            st[4] += w
 
-        min_x = max_x = x0
-        min_y = max_y = y0
-        area_px = 0
-
-        while stack:
-            y, x = stack.pop()
-            area_px += 1
-
-            if x < min_x:
-                min_x = x
-            if x > max_x:
-                max_x = x
-            if y < min_y:
-                min_y = y
-            if y > max_y:
-                max_y = y
-
-            for ny in (y - 1, y, y + 1):
-                if ny < 0 or ny >= h:
-                    continue
-                for nx in (x - 1, x, x + 1):
-                    if nx < 0 or nx >= w or (nx == x and ny == y):
-                        continue
-                    if mask[ny, nx] and not visited[ny, nx]:
-                        visited[ny, nx] = True
-                        stack.append((ny, nx))
-
-        components.append((min_x, min_y, max_x, max_y, area_px))
-
-    return components
+    return [tuple(v) for v in comp_map.values()]
 
 
 def _single_component_with_stats(binary_mask):
@@ -745,7 +778,7 @@ def load_image_folder_stats(images_root, class_map=None, class_exclude=None):
         class_images = []
         for root, _, files in os.walk(class_path):
             for fname in files:
-                if os.path.splitext(fname)[1].lower() in IMAGE_EXTS:
+                if not fname.startswith(".") and os.path.splitext(fname)[1].lower() in IMAGE_EXTS:
                     class_images.append(os.path.join(root, fname))
         class_images.sort()
 
@@ -754,7 +787,7 @@ def load_image_folder_stats(images_root, class_map=None, class_exclude=None):
         stats["num_annotations"] += len(class_images)
 
         for img_path in class_images:
-            res = get_image_size(img_path)
+            res = get_oriented_image_size(img_path)
             if res:
                 stats["image_resolution"]["widths"].append(res[0])
                 stats["image_resolution"]["heights"].append(res[1])
@@ -775,11 +808,13 @@ def load_png_mask_stats(
     mask_suffixes=None,
     connected_components=True,
     min_component_area_px=1,
+    pair_by_sorted_order=False,
 ):
     if not os.path.isdir(images_root):
         return None
 
-    if not masks_root or not os.path.isdir(masks_root):
+    has_masks = _has_annotation_source(masks_root)
+    if not has_masks:
         masks_root = ""
 
     class_map = class_map or {}
@@ -803,6 +838,32 @@ def load_png_mask_stats(
 
     image_files = _collect_images(images_root)
     stats = _new_stats_base(num_images=len(image_files))
+    stats["annotated"] = has_masks
+    diagnostics = stats["diagnostics"]
+
+    paired_masks = {}
+    if has_masks:
+        all_mask_files = _collect_images(masks_root)
+        if pair_by_sorted_order and len(image_files) == len(all_mask_files):
+            paired_masks = dict(zip(image_files, all_mask_files))
+        else:
+            matched_mask_norm = set()
+            for img_path in image_files:
+                basename = os.path.splitext(os.path.basename(img_path))[0]
+                for suffix in suffixes:
+                    found = None
+                    for ext in IMAGE_EXTS:
+                        candidate = os.path.join(masks_root, f"{basename}{suffix}{ext}")
+                        if os.path.exists(candidate):
+                            found = candidate
+                            break
+                    if found:
+                        paired_masks[img_path] = found
+                        matched_mask_norm.add(os.path.normcase(os.path.normpath(found)))
+                        break
+            all_mask_norm = {os.path.normcase(os.path.normpath(p)) for p in all_mask_files}
+            diagnostics["annotation_files_without_image"] = len(all_mask_norm - matched_mask_norm)
+            diagnostics["images_without_annotation_file"] = len(image_files) - len(paired_masks)
 
     try:
         from PIL import Image
@@ -812,21 +873,29 @@ def load_png_mask_stats(
         print("Warning: PIL not found. PNG mask class stats will be limited.")
 
     for img_path in image_files:
-        basename = os.path.splitext(os.path.basename(img_path))[0]
-        mask_path = None
-        for suffix in suffixes:
-            for ext in (".png", ".jpg", ".jpeg", ".bmp", ".webp"):
-                candidate = os.path.join(masks_root, f"{basename}{suffix}{ext}")
-                if os.path.exists(candidate):
-                    mask_path = candidate
-                    break
-            if mask_path:
-                break
+        mask_path = paired_masks.get(img_path)
+        raw_res = get_image_size(img_path)
+        oriented_res = get_oriented_image_size(img_path)
+        mask_res = get_image_size(mask_path) if mask_path else None
 
-        res = get_image_size(img_path)
+        if mask_res:
+            if oriented_res == mask_res:
+                res = oriented_res
+            elif raw_res == mask_res:
+                res = raw_res
+            else:
+                res = oriented_res or raw_res or mask_res
+                if res != mask_res:
+                    diagnostics["annotation_size_differs_from_image"] += 1
+        else:
+            res = oriented_res or raw_res
+
         if res:
             stats["image_resolution"]["widths"].append(res[0])
             stats["image_resolution"]["heights"].append(res[1])
+
+        if not has_masks:
+            continue
 
         class_set = set()
         count = 0

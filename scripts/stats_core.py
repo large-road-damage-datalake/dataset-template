@@ -53,6 +53,7 @@ def compute_split_stats(task_type, fmt, split_cfg):
     class_exclude = split_cfg.get('class_exclude', [])
     connected_components = split_cfg.get('connected_components', True)
     min_component_area_px = split_cfg.get('min_component_area_px', 1)
+    pair_by_sorted_order = split_cfg.get('pair_by_sorted_order', False)
     
     # Dispatch
     data = None
@@ -87,6 +88,7 @@ def compute_split_stats(task_type, fmt, split_cfg):
             mask_suffixes=mask_suffixes,
             connected_components=connected_components,
             min_component_area_px=min_component_area_px,
+            pair_by_sorted_order=pair_by_sorted_order,
         )
     else:
         raise ValueError(f"Unknown format: {fmt}")

@@ -715,6 +715,8 @@ def _resolved_splits(config):
                 "mask_suffixes": list(scfg.get("mask_suffixes", [""]) or [""]),
                 "class_map": dict(split_class_map or {}),
                 "class_exclude": list(split_class_exclude or []),
+                "min_component_area_px": scfg.get("min_component_area_px", config.get("min_component_area_px", 1)),
+                "pair_by_sorted_order": bool(scfg.get("pair_by_sorted_order", config.get("pair_by_sorted_order", False))),
             }
         )
     return out
@@ -817,6 +819,30 @@ def _find_sample_annotation_info(sample_src, config, splits, coco_cache):
 
     if fmt == "png_masks" and split:
         mroot = split.get("masks_root", "")
+        if split.get("pair_by_sorted_order") and mroot and os.path.isdir(mroot):
+            iroot = split.get("images_root", "")
+            img_exts = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
+            imgs = sorted(
+                os.path.normcase(os.path.normpath(os.path.join(iroot, f)))
+                for f in os.listdir(iroot)
+                if os.path.splitext(f)[1].lower() in img_exts
+            ) if iroot and os.path.isdir(iroot) else []
+            msks = sorted(
+                os.path.join(mroot, f)
+                for f in os.listdir(mroot)
+                if os.path.splitext(f)[1].lower() in img_exts
+            )
+            src_norm = os.path.normcase(os.path.normpath(sample_src))
+            if len(imgs) == len(msks) and src_norm in imgs:
+                mp = msks[imgs.index(src_norm)]
+                return {
+                    "mode": "mask",
+                    "format": "png_masks",
+                    "source_path": mp,
+                    "class_map": dict(split.get("class_map", {}) or {}),
+                    "class_exclude": list(split.get("class_exclude", []) or []),
+                    "min_component_area_px": split.get("min_component_area_px", 1),
+                }
         suffixes = split.get("mask_suffixes", [""]) if isinstance(split, dict) else [""]
         if not isinstance(suffixes, (list, tuple)):
             suffixes = [""]
@@ -1212,25 +1238,33 @@ def _mask_to_polygons(
                 if parsed is not None and parsed in present_vals and str(parsed) not in cexclude:
                     mapped_vals.add(parsed)
 
+        labels = set()
+        if isinstance(cmap, dict):
+            labels = {
+                str(v).strip()
+                for v in cmap.values()
+                if str(v).strip() and str(v).strip() not in cexclude
+            }
+
         # Binary masks: cracks are usually minority pixels. This also handles inverse masks.
         if vals.size == 2:
             idx = int(np.argmin(counts))
             minority_val = int(vals[idx])
             minority_ratio = float(counts[idx]) / max(1.0, float(np.sum(counts)))
-            labels = set()
-            if isinstance(cmap, dict):
-                labels = {str(v).strip() for v in cmap.values() if str(v).strip()}
             if (not cmap or len(labels) <= 1) and minority_ratio <= 0.49:
                 return {minority_val}
-
-        if mapped_vals:
-            return mapped_vals
 
         non_zero = {
             v
             for v in present_vals
             if v != 0 and v not in excluded_raw and str(v) not in cexclude
         }
+        if len(labels) == 1 and non_zero:
+            return non_zero
+
+        if mapped_vals:
+            return mapped_vals
+
         if non_zero:
             return non_zero
 
@@ -1383,22 +1417,25 @@ def _mask_to_polygons(
                 if mapped_str and parsed not in value_to_label:
                     value_to_label[parsed] = mapped_str
 
+        single_label = None
+        if isinstance(cmap, dict) and cmap:
+            labels = sorted(
+                {
+                    str(v).strip()
+                    for v in cmap.values()
+                    if str(v).strip() and str(v).strip() not in cexclude
+                }
+            )
+            if len(labels) == 1:
+                single_label = labels[0]
+
         pairs = []
         for value in values_sorted:
             label = value_to_label.get(value)
             if not label:
-                if len(values_sorted) == 1:
-                    if isinstance(cmap, dict) and cmap:
-                        labels = sorted(
-                            {
-                                str(v).strip()
-                                for v in cmap.values()
-                                if str(v).strip() and str(v).strip() not in cexclude
-                            }
-                        )
-                        if len(labels) == 1:
-                            label = labels[0]
-                if not label:
+                if single_label:
+                    label = single_label
+                else:
                     label = "crack" if len(values_sorted) == 1 else f"class_{value}"
             pairs.append((value, label))
         return pairs
@@ -1554,8 +1591,15 @@ def _mask_to_polygons(
 
     polygons = []
     pid = 1
+    label_to_values = defaultdict(list)
     for class_value, class_label in _class_value_label_pairs(binary_values, class_map, excluded):
-        class_binary = mask_arr == int(class_value)
+        label_to_values[class_label].append(int(class_value))
+
+    for class_label, class_values in label_to_values.items():
+        if len(class_values) == 1:
+            class_binary = mask_arr == class_values[0]
+        else:
+            class_binary = np.isin(mask_arr, class_values)
         if not np.any(class_binary):
             continue
         class_polygons, pid = _extract_polygons_for_binary(class_binary, class_label, pid)
