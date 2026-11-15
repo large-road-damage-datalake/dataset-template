@@ -94,6 +94,7 @@ def compute_split_stats(task_type, fmt, split_cfg):
     if data is None:
         # Return empty stats if path failed
         return {
+            'annotated': False,
             'num_images': 0,
             'num_annotations': 0,
             'num_images_with_annotations': 0,
@@ -109,6 +110,10 @@ def compute_split_stats(task_type, fmt, split_cfg):
     summary['num_images'] = data['num_images']
     summary['num_annotations'] = data['num_annotations']
     summary['class_distribution'] = dict(data['class_distribution'])
+    summary['annotated'] = bool(data.get('annotated', True))
+    diagnostics = {k: int(v) for k, v in (data.get('diagnostics') or {}).items() if v}
+    if diagnostics:
+        summary['diagnostics'] = diagnostics
     
     # Objects per image
     objs = data.get('objects_per_image', [])
@@ -187,14 +192,20 @@ def aggregate_global_stats(split_stats_dict):
     """
     global_stats = {
         'num_images': 0,
+        'num_images_in_annotated_splits': 0,
         'num_annotations': 0,
         'num_images_with_annotations': 0,
         'class_distribution': defaultdict(int),
         'image_resolution_histogram': defaultdict(int),
     }
-    
+    merged_diagnostics = defaultdict(int)
+
     for split_name, stats in split_stats_dict.items():
         global_stats['num_images'] += stats['num_images']
+        if stats.get('annotated', True):
+            global_stats['num_images_in_annotated_splits'] += stats['num_images']
+        for diag_key, diag_val in (stats.get('diagnostics') or {}).items():
+            merged_diagnostics[diag_key] += int(diag_val)
         global_stats['num_annotations'] += stats['num_annotations']
         global_stats['num_images_with_annotations'] += int(stats.get('num_images_with_annotations', 0))
         for k, v in stats['class_distribution'].items():
@@ -203,6 +214,8 @@ def aggregate_global_stats(split_stats_dict):
             global_stats['image_resolution_histogram'][str(res_key)] += int(cnt)
             
     # Convert defaultdict to dict
+    if merged_diagnostics:
+        global_stats['diagnostics'] = dict(merged_diagnostics)
     global_stats['class_distribution'] = dict(global_stats['class_distribution'])
     global_stats['image_resolution_histogram'] = dict(
         sorted(

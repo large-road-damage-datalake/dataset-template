@@ -2176,7 +2176,33 @@ def _build_preview_assets(config, output_dir, stats_data, samples_rel_dir="visua
     return sample_count, slider_pairs
 
 
-def _attach_country_view_assets(config, output_dir, stats_data, country_views, all_sample_count, all_slider_pairs, all_spatial_meta):
+def _load_previous_sample_summaries(stats_dir):
+    """
+    Sample previews already on disk, keyed by view id ("all" for the top level).
+    Lets a stats refresh keep the published sample images untouched.
+    """
+    def _read(name):
+        try:
+            with open(os.path.join(stats_dir, name), "r", encoding="utf-8-sig") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    summaries = {}
+    top = _read("samples_summary.json")
+    if isinstance(top, dict):
+        summaries["all"] = top
+    for name in ("country_views.json", "region_views.json"):
+        payload = _read(name)
+        views = payload.get("views", {}) if isinstance(payload, dict) else {}
+        for view_id, view in views.items():
+            summary = view.get("samples_summary") if isinstance(view, dict) else None
+            if view_id != "all" and isinstance(summary, dict):
+                summaries[view_id] = summary
+    return summaries
+
+
+def _attach_country_view_assets(config, output_dir, stats_data, country_views, all_sample_count, all_slider_pairs, all_spatial_meta, previous_summaries=None):
     views = country_views.get("views", {}) if isinstance(country_views, dict) else {}
     view_order = country_views.get("view_order", []) if isinstance(country_views, dict) else []
 
@@ -2203,20 +2229,22 @@ def _attach_country_view_assets(config, output_dir, stats_data, country_views, a
         samples_rel = f"visualizations/country_views/{view_id}/samples"
         spatial_rel = f"visualizations/country_views/{view_id}/spatial_heatmaps"
 
-        sample_count, slider_pairs = _build_preview_assets(
-            config,
-            output_dir,
-            scoped_stats,
-            samples_rel_dir=samples_rel,
-            fast_selection=True,
-        )
+        reused_summary = (previous_summaries or {}).get(view_id)
+        if reused_summary is None:
+            sample_count, slider_pairs = _build_preview_assets(
+                config,
+                output_dir,
+                scoped_stats,
+                samples_rel_dir=samples_rel,
+                fast_selection=True,
+            )
         spatial_meta = _build_spatial_heatmaps(
             scoped_stats,
             output_dir,
             relative_dir=spatial_rel,
         )
 
-        view["samples_summary"] = {
+        view["samples_summary"] = reused_summary or {
             "sample_count": sample_count,
             "slider_pairs": slider_pairs,
             "samples_dir": samples_rel,
@@ -2226,7 +2254,7 @@ def _attach_country_view_assets(config, output_dir, stats_data, country_views, a
         view["spatial_heatmaps"] = spatial_meta
 
 
-def _attach_region_view_assets(config, output_dir, stats_data, region_views, all_sample_count, all_slider_pairs, all_spatial_meta):
+def _attach_region_view_assets(config, output_dir, stats_data, region_views, all_sample_count, all_slider_pairs, all_spatial_meta, previous_summaries=None):
     views = region_views.get("views", {}) if isinstance(region_views, dict) else {}
     view_order = region_views.get("view_order", []) if isinstance(region_views, dict) else []
 
@@ -2253,20 +2281,22 @@ def _attach_region_view_assets(config, output_dir, stats_data, region_views, all
         samples_rel = f"visualizations/region_views/{view_id}/samples"
         spatial_rel = f"visualizations/region_views/{view_id}/spatial_heatmaps"
 
-        sample_count, slider_pairs = _build_preview_assets(
-            config,
-            output_dir,
-            scoped_stats,
-            samples_rel_dir=samples_rel,
-            fast_selection=True,
-        )
+        reused_summary = (previous_summaries or {}).get(view_id)
+        if reused_summary is None:
+            sample_count, slider_pairs = _build_preview_assets(
+                config,
+                output_dir,
+                scoped_stats,
+                samples_rel_dir=samples_rel,
+                fast_selection=True,
+            )
         spatial_meta = _build_spatial_heatmaps(
             scoped_stats,
             output_dir,
             relative_dir=spatial_rel,
         )
 
-        view["samples_summary"] = {
+        view["samples_summary"] = reused_summary or {
             "sample_count": sample_count,
             "slider_pairs": slider_pairs,
             "samples_dir": samples_rel,
@@ -2276,9 +2306,14 @@ def _attach_region_view_assets(config, output_dir, stats_data, region_views, all
         view["spatial_heatmaps"] = spatial_meta
 
 
-def build_artifacts(config, output_dir, stats_data):
+def build_artifacts(config, output_dir, stats_data, refresh_only=False):
+    """
+    refresh_only=True recomputes stats tables and heatmaps but keeps the sample
+    previews already published in the package.
+    """
     stats_dir = os.path.join(output_dir, "stats")
     _safe_makedirs(stats_dir)
+    previous_summaries = _load_previous_sample_summaries(stats_dir) if refresh_only else None
 
     artifacts = {
         "class_balance": _build_class_balance(stats_data),
@@ -2311,7 +2346,11 @@ def build_artifacts(config, output_dir, stats_data):
     )
 
     _plot_pngs(stats_dir, artifacts)
-    sample_count, slider_pairs = _build_preview_assets(config, output_dir, stats_data)
+    if previous_summaries and "all" in previous_summaries:
+        sample_count = previous_summaries["all"].get("sample_count", 0)
+        slider_pairs = previous_summaries["all"].get("slider_pairs", [])
+    else:
+        sample_count, slider_pairs = _build_preview_assets(config, output_dir, stats_data)
 
     country_views = _build_country_views(config, stats_data)
     country_views_path = os.path.join(stats_dir, "country_views.json")
@@ -2325,6 +2364,7 @@ def build_artifacts(config, output_dir, stats_data):
             all_sample_count=sample_count,
             all_slider_pairs=slider_pairs,
             all_spatial_meta=spatial_meta,
+            previous_summaries=previous_summaries,
         )
         _write_json(country_views_path, country_views)
         stats_manifest["artifacts"].append(
@@ -2354,6 +2394,7 @@ def build_artifacts(config, output_dir, stats_data):
             all_sample_count=sample_count,
             all_slider_pairs=slider_pairs,
             all_spatial_meta=spatial_meta,
+            previous_summaries=previous_summaries,
         )
         _write_json(region_views_path, region_views)
         stats_manifest["artifacts"].append(

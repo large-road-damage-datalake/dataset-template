@@ -23,7 +23,57 @@ def _new_stats_base(num_images=0):
         "class_area_sum_per_image": [],
         "image_paths": [],
         "bbox_shapes_by_class": defaultdict(list),
+        # False when a split has no annotation source (e.g. unlabeled test split).
+        "annotated": True,
+        "diagnostics": defaultdict(int),
     }
+
+
+def _exif_orientation(file_path):
+    """EXIF orientation tag (1 when absent or unreadable)."""
+    if not file_path.lower().endswith((".jpg", ".jpeg", ".tif", ".tiff")):
+        return 1
+    try:
+        from PIL import Image
+
+        with Image.open(file_path) as img:
+            return int(img.getexif().get(0x0112, 1) or 1)
+    except Exception:
+        return 1
+
+
+def get_oriented_image_size(file_path):
+    """
+    Return (width, height) as displayed, i.e. after applying EXIF rotation.
+    Annotation tools draw boxes in the displayed frame, so detection statistics
+    must be normalized by this size rather than the stored pixel grid.
+    """
+    size = get_image_size(file_path)
+    if size and _exif_orientation(file_path) in (5, 6, 7, 8):
+        return (size[1], size[0])
+    return size
+
+
+def _has_annotation_source(annotations_root):
+    """True when an annotation path was configured; warns if it does not exist."""
+    if not annotations_root:
+        return False
+    if os.path.isdir(annotations_root):
+        return True
+    print(f"WARNING: annotations path not found, split treated as unannotated: {annotations_root}")
+    return False
+
+
+def _list_stems(directory, extension):
+    return {
+        os.path.splitext(name)[0]
+        for name in os.listdir(directory)
+        if name.lower().endswith(extension)
+    }
+
+
+def _clip_interval(lo, hi, limit):
+    return max(0.0, min(lo, limit)), max(0.0, min(hi, limit))
 
 
 def get_image_size(file_path):
@@ -369,16 +419,12 @@ def load_coco_stats(annotations_path, images_root):
 
         image_files = _collect_images(images_root)
         stats = _new_stats_base(num_images=len(image_files))
+        stats["annotated"] = False
         for img_path in image_files:
             res = get_image_size(img_path)
             if res:
                 stats["image_resolution"]["widths"].append(res[0])
                 stats["image_resolution"]["heights"].append(res[1])
-            stats["objects_per_image"].append(0)
-            stats["class_sets_per_image"].append([])
-            stats["class_counts_per_image"].append({})
-            stats["class_area_sum_per_image"].append({})
-            stats["image_paths"].append(img_path)
         return stats
 
     try:
@@ -459,27 +505,39 @@ def load_yolo_stats(images_root, annotations_root=None, class_map=None, class_ex
     class_exclude = set(class_exclude or [])
     image_files = _collect_images(images_root)
     stats = _new_stats_base(num_images=len(image_files))
+    diagnostics = stats["diagnostics"]
+
+    has_labels = _has_annotation_source(annotations_root)
+    stats["annotated"] = has_labels
+    if has_labels:
+        label_stems = _list_stems(annotations_root, ".txt")
+        image_stems = {os.path.splitext(os.path.basename(p))[0] for p in image_files}
+        diagnostics["annotation_files_without_image"] = len(label_stems - image_stems)
+        diagnostics["images_without_annotation_file"] = len(image_stems - label_stems)
 
     for img_path in image_files:
-        res = get_image_size(img_path)
+        iw, ih = 0, 0
+        res = get_oriented_image_size(img_path)
         if res:
             iw, ih = res
             stats["image_resolution"]["widths"].append(iw)
             stats["image_resolution"]["heights"].append(ih)
 
+        if not has_labels:
+            continue
+
         basename = os.path.splitext(os.path.basename(img_path))[0]
-        label_path = None
-        if annotations_root and os.path.isdir(annotations_root):
-            label_path = os.path.join(annotations_root, basename + ".txt")
+        label_path = os.path.join(annotations_root, basename + ".txt")
 
         count = 0
         class_set = set()
         class_count_map = defaultdict(int)
         class_area_sum_map = defaultdict(float)
-        if label_path and os.path.exists(label_path):
+        if os.path.exists(label_path):
             with open(label_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
 
+            seen_lines = set()
             for line in lines:
                 parts = line.strip().split()
                 if len(parts) < 5:
@@ -487,6 +545,12 @@ def load_yolo_stats(images_root, annotations_root=None, class_map=None, class_ex
                 cls = _map_detection_class(parts[0], class_map, class_exclude)
                 if not cls:
                     continue
+
+                key = tuple(parts)
+                if key in seen_lines:
+                    diagnostics["duplicate_label_lines"] += 1
+                seen_lines.add(key)
+
                 class_set.add(cls)
                 stats["class_distribution"][cls] += 1
                 stats["num_annotations"] += 1
@@ -494,27 +558,35 @@ def load_yolo_stats(images_root, annotations_root=None, class_map=None, class_ex
                 class_count_map[cls] += 1
 
                 try:
-                    cx_rel = float(parts[1])
-                    cy_rel = float(parts[2])
-                    w_rel = float(parts[3])
-                    h_rel = float(parts[4])
-                    rel_area = w_rel * h_rel
-                    stats["bbox_area_rel"].append(rel_area)
-                    stats["bbox_area_rel_by_class"][cls].append(rel_area)
-                    class_area_sum_map[cls] += rel_area
-                    stats["bbox_shapes_by_class"][cls].append(
-                        {
-                            "area_rel": rel_area,
-                            "width_rel": w_rel,
-                            "height_rel": h_rel,
-                            "width_px": (w_rel * iw) if iw else 0,
-                            "height_px": (h_rel * ih) if ih else 0,
-                            "cx_rel": cx_rel,
-                            "cy_rel": cy_rel,
-                        }
-                    )
+                    cx_rel, cy_rel, w_rel, h_rel = (float(v) for v in parts[1:5])
                 except ValueError:
-                    pass
+                    diagnostics["non_numeric_boxes"] += 1
+                    continue
+
+                x0, x1 = _clip_interval(cx_rel - w_rel / 2.0, cx_rel + w_rel / 2.0, 1.0)
+                y0, y1 = _clip_interval(cy_rel - h_rel / 2.0, cy_rel + h_rel / 2.0, 1.0)
+                if abs((x1 - x0) - w_rel) > 1e-6 or abs((y1 - y0) - h_rel) > 1e-6:
+                    diagnostics["boxes_clipped_to_image"] += 1
+                w_rel, h_rel = x1 - x0, y1 - y0
+                cx_rel, cy_rel = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+                if w_rel <= 0 or h_rel <= 0:
+                    diagnostics["degenerate_boxes"] += 1
+
+                rel_area = w_rel * h_rel
+                stats["bbox_area_rel"].append(rel_area)
+                stats["bbox_area_rel_by_class"][cls].append(rel_area)
+                class_area_sum_map[cls] += rel_area
+                stats["bbox_shapes_by_class"][cls].append(
+                    {
+                        "area_rel": rel_area,
+                        "width_rel": w_rel,
+                        "height_rel": h_rel,
+                        "width_px": w_rel * iw,
+                        "height_px": h_rel * ih,
+                        "cx_rel": cx_rel,
+                        "cy_rel": cy_rel,
+                    }
+                )
 
         stats["objects_per_image"].append(count)
         stats["class_sets_per_image"].append(sorted(list(class_set)))
@@ -533,44 +605,71 @@ def load_voc_stats(images_root, annotations_root=None, class_map=None, class_exc
     class_exclude = set(class_exclude or [])
     image_files = _collect_images(images_root)
     stats = _new_stats_base(num_images=len(image_files))
+    diagnostics = stats["diagnostics"]
+
+    has_xml = _has_annotation_source(annotations_root)
+    stats["annotated"] = has_xml
+    if has_xml:
+        xml_stems = _list_stems(annotations_root, ".xml")
+        image_stems = {os.path.splitext(os.path.basename(p))[0] for p in image_files}
+        diagnostics["annotation_files_without_image"] = len(xml_stems - image_stems)
+        diagnostics["images_without_annotation_file"] = len(image_stems - xml_stems)
 
     for img_path in image_files:
         basename = os.path.splitext(os.path.basename(img_path))[0]
-        xml_path = ""
-        if annotations_root and os.path.isdir(annotations_root):
-            xml_path = os.path.join(annotations_root, basename + ".xml")
 
-        res = get_image_size(img_path)
-        iw, ih = (0, 0)
+        iw, ih = 0, 0
+        res = get_oriented_image_size(img_path)
         if res:
             iw, ih = res
             stats["image_resolution"]["widths"].append(iw)
             stats["image_resolution"]["heights"].append(ih)
 
+        if not has_xml:
+            continue
+
+        xml_path = os.path.join(annotations_root, basename + ".xml")
         count = 0
         class_set = set()
         class_count_map = defaultdict(int)
         class_area_sum_map = defaultdict(float)
-        if xml_path and os.path.exists(xml_path):
+        if os.path.exists(xml_path):
             try:
                 root = ET.parse(xml_path).getroot()
+            except Exception:
+                diagnostics["annotation_parse_errors"] += 1
+                root = None
+
+            if root is not None:
+                declared_w = declared_h = 0
+                size_node = root.find("size")
+                if size_node is not None:
+                    try:
+                        declared_w = int(float(size_node.findtext("width", default="0")))
+                        declared_h = int(float(size_node.findtext("height", default="0")))
+                    except Exception:
+                        declared_w = declared_h = 0
+
                 if not iw or not ih:
-                    size_node = root.find("size")
-                    if size_node is not None:
-                        try:
-                            iw = int(float(size_node.findtext("width", default="0")))
-                            ih = int(float(size_node.findtext("height", default="0")))
-                            if iw and ih:
-                                stats["image_resolution"]["widths"].append(iw)
-                                stats["image_resolution"]["heights"].append(ih)
-                        except Exception:
-                            iw, ih = (0, 0)
+                    iw, ih = declared_w, declared_h
+                    if iw and ih:
+                        stats["image_resolution"]["widths"].append(iw)
+                        stats["image_resolution"]["heights"].append(ih)
+                # Boxes live in the annotation's own frame; if it disagrees with the
+                # image file, normalize by the declared size and flag the mismatch.
+                frame_w, frame_h = iw, ih
+                if iw and ih and declared_w and declared_h and (declared_w, declared_h) != (iw, ih):
+                    diagnostics["annotation_size_differs_from_image"] += 1
+                    frame_w, frame_h = declared_w, declared_h
+
                 for obj in root.findall("object"):
                     name_node = obj.find("name")
-                    if name_node is None:
+                    raw_name = (name_node.text or "").strip() if name_node is not None else ""
+                    if not raw_name:
+                        diagnostics["objects_without_label"] += 1
                         continue
-                    cls = class_map.get(name_node.text, name_node.text)
-                    if cls in class_exclude:
+                    cls = class_map.get(raw_name, raw_name)
+                    if raw_name in class_exclude or cls in class_exclude:
                         continue
                     class_set.add(cls)
                     stats["class_distribution"][cls] += 1
@@ -579,33 +678,42 @@ def load_voc_stats(images_root, annotations_root=None, class_map=None, class_exc
                     class_count_map[cls] += 1
 
                     bndbox = obj.find("bndbox")
-                    if bndbox is not None and iw and ih:
-                        try:
-                            xmin = float(bndbox.find("xmin").text)
-                            ymin = float(bndbox.find("ymin").text)
-                            xmax = float(bndbox.find("xmax").text)
-                            ymax = float(bndbox.find("ymax").text)
-                            bw = max(0.0, xmax - xmin)
-                            bh = max(0.0, ymax - ymin)
-                            rel_area = (bw * bh) / (iw * ih)
-                            stats["bbox_area_rel"].append(rel_area)
-                            stats["bbox_area_rel_by_class"][cls].append(rel_area)
-                            class_area_sum_map[cls] += rel_area
-                            stats["bbox_shapes_by_class"][cls].append(
-                                {
-                                    "area_rel": rel_area,
-                                    "width_rel": bw / iw,
-                                    "height_rel": bh / ih,
-                                    "width_px": bw,
-                                    "height_px": bh,
-                                    "cx_rel": (xmin + bw / 2.0) / iw,
-                                    "cy_rel": (ymin + bh / 2.0) / ih,
-                                }
-                            )
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                    if bndbox is None or not frame_w or not frame_h:
+                        diagnostics["objects_without_box"] += 1
+                        continue
+                    try:
+                        xmin = float(bndbox.find("xmin").text)
+                        ymin = float(bndbox.find("ymin").text)
+                        xmax = float(bndbox.find("xmax").text)
+                        ymax = float(bndbox.find("ymax").text)
+                    except Exception:
+                        diagnostics["objects_without_box"] += 1
+                        continue
+
+                    x0, x1 = _clip_interval(xmin, xmax, float(frame_w))
+                    y0, y1 = _clip_interval(ymin, ymax, float(frame_h))
+                    if (x0, y0, x1, y1) != (xmin, ymin, xmax, ymax):
+                        diagnostics["boxes_clipped_to_image"] += 1
+                    bw = max(0.0, x1 - x0)
+                    bh = max(0.0, y1 - y0)
+                    if bw <= 0 or bh <= 0:
+                        diagnostics["degenerate_boxes"] += 1
+
+                    rel_area = (bw * bh) / (frame_w * frame_h)
+                    stats["bbox_area_rel"].append(rel_area)
+                    stats["bbox_area_rel_by_class"][cls].append(rel_area)
+                    class_area_sum_map[cls] += rel_area
+                    stats["bbox_shapes_by_class"][cls].append(
+                        {
+                            "area_rel": rel_area,
+                            "width_rel": bw / frame_w,
+                            "height_rel": bh / frame_h,
+                            "width_px": bw,
+                            "height_px": bh,
+                            "cx_rel": (x0 + bw / 2.0) / frame_w,
+                            "cy_rel": (y0 + bh / 2.0) / frame_h,
+                        }
+                    )
 
         stats["objects_per_image"].append(count)
         stats["class_sets_per_image"].append(sorted(list(class_set)))

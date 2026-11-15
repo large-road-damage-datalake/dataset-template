@@ -5,6 +5,7 @@ Auto-fills METADATA.json with computed statistics.
 This ensures METADATA.json is always up-to-date with the actual dataset.
 """
 
+import copy
 import json
 import yaml
 import os
@@ -1175,14 +1176,117 @@ def _compute_country_resolution_details(splits, config):
     return ordered
 
 
-def enrich_metadata_from_stats(metadata_path, stats_data, config):
+def _merge_named_entries(old_entries, new_entries, update_keys, only_existing_keys):
+    """
+    Refresh computed values of curated entries (matched by name, or by position
+    when both lists hold a single entry) without renaming or dropping them.
+    """
+    old_entries = [e for e in (old_entries or []) if isinstance(e, dict)]
+    by_name = {_normalized_label(e.get('name')): e for e in old_entries}
+    merged = []
+    used = set()
+    for new in new_entries:
+        old = by_name.get(_normalized_label(new.get('name')))
+        if old is None and len(new_entries) == 1 and len(old_entries) == 1:
+            old = old_entries[0]
+        if old is None:
+            merged.append(new)
+            continue
+        used.add(id(old))
+        entry = dict(old)
+        for key in update_keys:
+            if key in new and (key in old or not only_existing_keys):
+                entry[key] = new[key]
+        merged.append(entry)
+    merged.extend(e for e in old_entries if id(e) not in used)
+    return merged
+
+
+def _keep_integral_formatting(old, new):
+    """Keep `1` instead of `1.0` where the previous file stored an integer."""
+    if isinstance(old, dict) and isinstance(new, dict):
+        for key, value in new.items():
+            if key in old:
+                new[key] = _keep_integral_formatting(old[key], value)
+        return new
+    if isinstance(old, list) and isinstance(new, list) and len(old) == len(new):
+        return [_keep_integral_formatting(o, n) for o, n in zip(old, new)]
+    if isinstance(old, int) and not isinstance(old, bool) and isinstance(new, float) and new == old:
+        return old
+    return new
+
+
+def _refresh_derived_sections(metadata, previous, global_stats, splits, config):
+    """
+    Update only values computed from stats; curated fields (names, formats,
+    taxonomy, publication details) stay exactly as they are in `previous`.
+    """
+    old_stats = previous.get('statistics') or {}
+    new_stats = metadata.get('statistics') or {}
+    merged_stats = dict(old_stats)
+    for key, value in new_stats.items():
+        if key == 'image_format' and 'image_format' in old_stats:
+            continue
+        if key == 'split':
+            old_split = old_stats.get('split') or {}
+            merged_stats['split'] = {
+                name: {**(old_split.get(name) or {}), **entry} for name, entry in value.items()
+            }
+            continue
+        merged_stats[key] = value
+    if 'integrity' not in new_stats:
+        merged_stats.pop('integrity', None)
+    metadata['statistics'] = merged_stats
+
+    class_distribution = global_stats.get('class_distribution', {}) or {}
+    for schema in metadata.get('annotation_schema') or []:
+        for entry in (schema or {}).get('classes') or []:
+            name = str(entry.get('name', ''))
+            if name in class_distribution:
+                entry['instances'] = int(class_distribution[name])
+
+    geo = metadata.get('geographic_coverage', {})
+    computed_countries = _compute_country_statistics(splits, config, config.get('task_type', ''))
+    if computed_countries:
+        geo['countries'] = _merge_named_entries(
+            geo.get('countries'),
+            computed_countries,
+            update_keys=('image_count', 'annotated_image_count', 'annotation_coverage'),
+            only_existing_keys=True,
+        )
+    metadata['geographic_coverage'] = geo
+
+    imaging_setup = metadata.get('imaging_setup', {})
+    if not isinstance(imaging_setup, dict):
+        imaging_setup = {}
+    resolution_hist = global_stats.get('image_resolution_histogram', {}) or {}
+    imaging_setup['resolution_details'] = [
+        {'resolution': str(key), 'count': int(value)}
+        for key, value in resolution_hist.items()
+    ]
+    country_resolution_details = _compute_country_resolution_details(splits, config)
+    multi_country = len(computed_countries or []) > 1
+    if country_resolution_details and ('resolution_by_country' in imaging_setup or multi_country):
+        imaging_setup['resolution_by_country'] = _merge_named_entries(
+            imaging_setup.get('resolution_by_country'),
+            country_resolution_details,
+            update_keys=('resolutions', 'resolution_details'),
+            only_existing_keys=False,
+        )
+    metadata['imaging_setup'] = imaging_setup
+
+    metadata.update(_keep_integral_formatting(previous, metadata))
+
+
+def enrich_metadata_from_stats(metadata_path, stats_data, config, refresh_only=False):
     """
     Enrich METADATA.json with computed statistics.
-    
+
     Args:
         metadata_path: Path to METADATA.json
         stats_data: Computed stats from stats.json
         config: Config dict from config.yaml
+        refresh_only: update only stats-derived sections of an existing METADATA.json
     """
     
     # Load template metadata
@@ -1191,18 +1295,26 @@ def enrich_metadata_from_stats(metadata_path, stats_data, config):
             metadata = json.load(f)
     else:
         metadata = {}
-    
+    previous_metadata = copy.deepcopy(metadata)
+
     # Extract computed stats
     global_stats = stats_data.get('global', {})
     splits = stats_data.get('splits', {})
     
+    # Images in splits without an annotation source (e.g. unlabeled test sets)
+    # must not dilute per-image averages.
+    annotated_split_images = global_stats.get('num_images_in_annotated_splits')
+    if annotated_split_images is None:
+        annotated_split_images = global_stats.get('num_images', 0)
+
     # Auto-fill basic statistics
     metadata['statistics'] = {
         'n_images': global_stats.get('num_images', 0),
+        'n_images_in_annotated_splits': int(annotated_split_images),
         'n_annotations': global_stats.get('num_annotations', 0),
         'n_images_with_annotations': global_stats.get('num_images_with_annotations', 0),
         'average_annotations_per_image': (
-            global_stats.get('num_annotations', 0) / max(1, global_stats.get('num_images', 1))
+            global_stats.get('num_annotations', 0) / max(1, annotated_split_images)
         ),
         'dataset_size': global_stats.get('dataset_size_human', '0 MB'),
         'dataset_size_bytes': int(global_stats.get('dataset_size_bytes', 0)),
@@ -1220,6 +1332,7 @@ def enrich_metadata_from_stats(metadata_path, stats_data, config):
         
         metadata['statistics']['split'][split_name] = {
             'n_images': n_images,
+            'annotated': bool(split_stats.get('annotated', True)),
             'percentage': round(percentage, 2),
             'n_images_with_annotations': int(split_stats.get('num_images_with_annotations', 0)),
             'annotation_coverage': round(float(split_stats.get('annotation_coverage', 0)), 4),
@@ -1228,6 +1341,18 @@ def enrich_metadata_from_stats(metadata_path, stats_data, config):
             'dataset_file_count': int(split_stats.get('dataset_file_count', 0)),
         }
     
+    integrity = global_stats.get('diagnostics') or {}
+    if integrity:
+        metadata['statistics']['integrity'] = dict(integrity)
+
+    if refresh_only:
+        _refresh_derived_sections(metadata, previous_metadata, global_stats, splits, config)
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+            f.write('\n')
+        print("OK Refreshed computed sections of METADATA.json")
+        return
+
     # Update basic info from config while preserving optional fields.
     basic_info = metadata.get('basic_info', {})
     basic_info['id'] = config.get('dataset_id', basic_info.get('id', 'unknown'))

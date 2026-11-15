@@ -55,6 +55,8 @@ def _collect_split_files(split_cfg):
         elif os.path.isdir(p):
             for root, _, fnames in os.walk(p):
                 for name in fnames:
+                    if name.startswith('.'):
+                        continue  # tool caches and OS files are not part of the dataset
                     files.add(os.path.normcase(os.path.join(root, name)))
 
     return files
@@ -288,7 +290,13 @@ def main():
         action="store_true",
         help="Disable strict package validation gate"
     )
-    
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Recompute stats in an existing package in place: template files and "
+             "sample previews are left untouched"
+    )
+
     args = parser.parse_args()
     
     # Step 1: Validate config
@@ -307,13 +315,19 @@ def main():
     
     print(f"✓ Config valid: {config['dataset_name']}")
     
-    # Step 2: Create output structure
-    print(f"\n2️⃣  Creating output structure...")
-    create_output_structure(args.output)
-    
-    # Step 3: Copy template files
-    print(f"\n3️⃣  Copying template files...")
-    copy_template_files(args.output)
+    if args.refresh:
+        if not os.path.isfile(os.path.join(args.output, 'METADATA.json')):
+            print(f"❌ --refresh needs an existing package, METADATA.json not found in {args.output}")
+            sys.exit(1)
+        print("\n2️⃣  3️⃣  Refresh mode: keeping existing package files")
+    else:
+        # Step 2: Create output structure
+        print(f"\n2️⃣  Creating output structure...")
+        create_output_structure(args.output)
+
+        # Step 3: Copy template files
+        print(f"\n3️⃣  Copying template files...")
+        copy_template_files(args.output)
     
     # Step 4: Compute statistics
     print(f"\n4️⃣  Computing statistics...")
@@ -334,7 +348,7 @@ def main():
     print(f"\n6️⃣  Enriching METADATA.json...")
     try:
         metadata_path = os.path.join(args.output, 'METADATA.json')
-        enrich_metadata_from_stats(metadata_path, stats_data, config)
+        enrich_metadata_from_stats(metadata_path, stats_data, config, refresh_only=args.refresh)
         print(f"✓ METADATA.json enriched")
     except Exception as e:
         print(f"⚠️  Warning: Metadata enrichment failed: {e}")
@@ -342,7 +356,7 @@ def main():
     # Step 7: Build datasetninja-style artifacts (rich stats + previews)
     print(f"\n7️⃣  Building datasetninja-style artifacts...")
     try:
-        build_artifacts(config, args.output, stats_data)
+        build_artifacts(config, args.output, stats_data, refresh_only=args.refresh)
     except Exception as e:
         print(f"⚠️  Warning: Artifact build failed: {e}")
 
